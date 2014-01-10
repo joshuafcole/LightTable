@@ -281,8 +281,9 @@
             js/process.env.HOME)]
     (join h (or path separator))))
 
-(defn lt-home [path]
-  (join pwd path))
+(defn lt-home
+  ([] pwd)
+  ([path] (join pwd path)))
 
 (defn lt-user-dir [path]
   (if js/process.env.LT_USER_DIR
