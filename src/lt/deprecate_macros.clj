@@ -1,4 +1,5 @@
-(ns lt.deprecate-macros)
+(ns lt.deprecate-macros
+  (:refer-clojure :exclude [namespace]))
 
 (defn full-name
   ([ns-key sym]
@@ -6,6 +7,11 @@
      (str ns-str
           (when sym (str "/" sym)))))
   ([ns-key] (full-name ns-key nil)))
+
+(defn ns-parts [name]
+  (clojure.string/split
+   (first (clojure.string/split name #"/"))
+   #"\."))
 
 ;; Functions
 (defn wrap-bodies [old-name new-name body]
@@ -20,41 +26,45 @@
     body))
 
 (defmacro function [ns-key old-name new-name & body]
-  `(let []
-     (lt.util.deprecate/mark-deprecated :fn ~(full-name ns-key old-name) nil)
-     ~(conj body new-name 'defn)
-     ~(conj (wrap-bodies (full-name ns-key old-name)
-                         (full-name ns-key new-name)
-                         body)
-            old-name 'defn)))
+  (let [namespaced (clojure.core/namespace old-name)
+        full-old-name (if namespaced (str old-name) (full-name ns-key old-name))
+        full-new-name (full-name ns-key new-name)
+        old-name-parts (conj (ns-parts full-old-name) (name old-name))]
+    `(do
+       (lt.util.deprecate/mark-deprecated :fn ~full-old-name nil)
+       ~(conj body new-name 'defn)
+       (apply aset
+              js/window
+              ~(conj old-name-parts
+                    (conj (wrap-bodies full-old-name full-new-name body) 'fn)))
+
+
+)))
 
 ;; Ex.
 ;; (macroexpand-1 '(function ::ns old-name new-name [x] x))
-;; (function ::ns old-name new-name [x] x)
-;; (new-name 5)
-;; (old-name 5)
+;; (macroexpand-1 '(function ::ns bob/old-name new-name [x] x))
 
 
 ;; Variables
-
-;; @TODO: Add warning.
 (defmacro variable [ns-key old-name new-name val]
-  `(let [ns-old-name# (symbol ~(full-name ns-key old-name))
-         ns-old-proxy# ~(clojure.string/split
-                         (full-name ns-key)
-                         #"\.")
-         ns-old-obj# (apply aget (cons js/window ns-old-proxy#))]
-     (lt.util.deprecate/mark-deprecated :var ns-old-name# nil)
-     (def ~new-name ~val)
+  (let [namespaced (clojure.core/namespace old-name)
+        full-old-name (if namespaced (str old-name) (full-name ns-key old-name))
+        full-new-name (full-name ns-key new-name)
+        old-ns-parts (ns-parts full-old-name)]
 
-     (.__defineGetter__
-      ns-old-obj# ~(name old-name)
-      (fn []
-        (lt.util.deprecate/mark-activated :var ~(str old-name) ~(str new-name))
-        ~new-name))))
+    `(let [old-ns-obj# (apply aget (cons js/window ~old-ns-parts))]
+       (lt.util.deprecate/mark-deprecated :var ~full-old-name nil)
+       (def ~new-name ~val)
+       (.__defineGetter__
+        old-ns-obj# ~(name old-name)
+        (fn []
+          (lt.util.deprecate/mark-activated :var ~full-old-name ~full-new-name)
+          ~new-name)))))
 
 ;; Ex.
 ;; (macroexpand-1 '(variable ::ns old-var new-var 5))
+;; (macroexpand-1 '(variable ::ns bob/old-var new-var 5))
 
 
 ;; Namespaces
@@ -76,7 +86,7 @@
           (lt.util.deprecate/mark-activated :ns ~(str old-name) ~(str new-name))
           ~new-name)))))
 
-;; No inline example possible -- this wankery only runs in cljs.
+;; Ex.
 ;; (macroexpand-1 '(namespace lt.blues.clues lt.util.deprecate))
 
 
