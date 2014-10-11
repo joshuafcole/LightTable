@@ -20,9 +20,13 @@
   (let [full (map (juxt :name identity) types)
         ext (for [cur types
                   ext (:exts cur)]
-              [ext (:name cur)])]
+              [ext (:name cur)])
+        filenames (for [cur types
+                  filename (:filenames cur)]
+              [filename (:name cur)])]
     {:types (into (:types cur {}) full)
-     :exts (into (:exts cur {}) ext)}))
+     :exts (into (:exts cur {}) ext)
+     :filenames (into (:filenames cur {}) filenames)}))
 
 (behavior ::file-types
                   :triggers #{:object.instant}
@@ -47,6 +51,7 @@
 (def files-obj (object/create (object/object* ::files
                                               :tags [:files]
                                               :exts {}
+                                              :filenames {}
                                               :types {})))
 
 (def line-ending (.-EOL os))
@@ -100,17 +105,25 @@
 (defn ext->mode [ext]
   (:mime (ext->type ext)))
 
+(defn filename->type [filename]
+  (let [filenames (:filenames @files-obj)
+        types (:types @files-obj)]
+    (-> filenames (get filename) types)))
+
+(defn filename->mode [filename]
+  (:mime (filename->type filename)))
+
 (defn path->type [path]
-  (->> path
-       get-file-parts
-       (map #(ext->type (keyword %)))
+  (->> (conj
+        (map #(ext->type (keyword %)) (get-file-parts path))
+        (filename->type (basename path)))
        (remove nil?)
        first))
 
 (defn path->mode [path]
-  (->> path
-       get-file-parts
-       (map #(ext->mode (keyword %)))
+  (->> (conj
+        (map #(ext->mode (keyword %)) (get-file-parts path))
+        (filename->mode (basename path)))
        (remove nil?)
        first))
 
